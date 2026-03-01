@@ -1,0 +1,71 @@
+name: 📦 Supabase DB Backup
+
+on:
+  # Runs daily at 2:00 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  backup:
+    name: Dump & Upload Supabase DB
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📅 Generate timestamp
+        id: timestamp
+        run: echo "ts=$(date +'%Y-%m-%d_%H-%M-%S')" >> "$GITHUB_OUTPUT"
+
+      - name: 🗄️ Dump database with pg_dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          echo "Starting database backup..."
+
+          # pg_dump is pre-installed on ubuntu-latest
+          pg_dump "$SUPABASE_DB_URL" \
+            --format=custom \
+            --verbose \
+            --no-owner \
+            --no-privileges \
+            --clean \
+            --if-exists \
+            --file=backup_${{ steps.timestamp.outputs.ts }}.dump
+
+          # Also create a plain SQL version (human-readable, can be inspected)
+          pg_dump "$SUPABASE_DB_URL" \
+            --format=plain \
+            --no-owner \
+            --no-privileges \
+            --clean \
+            --if-exists \
+            --file=backup_${{ steps.timestamp.outputs.ts }}.sql
+
+          echo "✅ Backup completed!"
+          echo "Binary dump size: $(du -sh backup_${{ steps.timestamp.outputs.ts }}.dump | cut -f1)"
+          echo "SQL dump size: $(du -sh backup_${{ steps.timestamp.outputs.ts }}.sql | cut -f1)"
+
+      - name: ☁️ Upload backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ steps.timestamp.outputs.ts }}
+          path: |
+            backup_${{ steps.timestamp.outputs.ts }}.dump
+            backup_${{ steps.timestamp.outputs.ts }}.sql
+          retention-days: 90
+          compression-level: 9
+
+      - name: ✅ Summary
+        run: |
+          echo "### 📦 Database Backup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Date** | ${{ steps.timestamp.outputs.ts }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Binary dump** | backup_${{ steps.timestamp.outputs.ts }}.dump |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SQL dump** | backup_${{ steps.timestamp.outputs.ts }}.sql |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Retention** | 90 days |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download from the **Artifacts** section below ⬇️" >> $GITHUB_STEP_SUMMARY
